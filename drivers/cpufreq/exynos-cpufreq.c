@@ -246,10 +246,10 @@ static unsigned int exynos_thermal_lower_speed(void)
 	curr = max_thermal_freq;
 	cur = exynos_getspeed(0);
 	
-	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
-		if (freq_table[i].frequency != CPUFREQ_ENTRY_INVALID &&
-				freq_table[i].frequency < curr && freq_table[i].frequency < cur) {
-			max = freq_table[i].frequency;
+	for (i = 0; freq_table[i+1].frequency != CPUFREQ_TABLE_END; i++) {
+		if (freq_table[i+1].frequency != CPUFREQ_ENTRY_INVALID &&
+				freq_table[i+1].frequency < curr && freq_table[i+1].frequency < cur) {
+			max = freq_table[i+1].frequency;
 			break;
 		}
 	}
@@ -273,6 +273,8 @@ void exynos_thermal_throttle(unsigned int min_mhz)
 	mutex_lock(&cpufreq_lock);
 
 	max_thermal_freq = exynos_thermal_lower_speed();
+	if (max_thermal_freq > 1400000)
+		max_thermal_freq = 1400000;
 	if (max_thermal_freq < min_mhz)
 	{
 		pr_alert("%s: OVERRIDE THERMAL MHZ %u-%u\n",
