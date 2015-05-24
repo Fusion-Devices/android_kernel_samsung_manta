@@ -345,11 +345,11 @@ static struct i2c_board_info i2c_devs2[] __initdata = {
 static struct tmu_data manta_tmu_pdata __initdata = {
 	.ts = {
 		.stop_throttle		= 78,
-		.start_throttle		= 80,
+		.start_throttle		= 88,
 		.start_tripping		= 110,
 		.start_emergency	= 120,
-		.stop_mem_throttle	= 80,
-		.start_mem_throttle	= 85,
+		.stop_mem_throttle	= 85,
+		.start_mem_throttle	= 95,
 	},
 
 	.efuse_value	= 80,
