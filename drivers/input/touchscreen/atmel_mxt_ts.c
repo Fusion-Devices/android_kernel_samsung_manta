@@ -23,6 +23,8 @@
 #include <linux/gpio.h>
 #include <linux/regulator/consumer.h>
 
+#include <linux/dt2w.h>
+
 /* Version */
 #define MXT_VER_20		20
 #define MXT_VER_21		21
@@ -232,6 +234,9 @@ static const char * const mxt_supply_names[] = {
 	"avdd",
 	"xvdd",
 };
+
+extern bool is_doubletap2wake_enabled(void);
+static bool disabled_irq = false;
 
 struct mxt_info {
 	u8 family_id;
@@ -1508,7 +1513,7 @@ static int mxt_power_off(struct mxt_data *data)
 	const struct mxt_platform_data *pdata = data->pdata;
 	int ret;
 
-	if (!data->enabled)
+	if (!data->enabled || is_doubletap2wake_enabled())
 		return 0;
 
 	/* Assert reset pin */
@@ -1566,6 +1571,7 @@ static ssize_t mxt_update_fw_store(struct device *dev,
 		}
 	}
 	disable_irq(data->irq);
+	disabled_irq = true;
 
 	dev_info(dev, "Updating firmware from sysfs\n");
 
@@ -1614,6 +1620,7 @@ err_verify_fw:
 	release_firmware(fw);
 err_request_firmware:
 	enable_irq(data->irq);
+	disabled_irq = false;
 	if (!enabled_status)
 		mxt_power_off(data);
 err_power_on:
@@ -1650,9 +1657,12 @@ static int mxt_start(struct mxt_data *data)
 	error = mxt_power_on(data);
 	if (error)
 		dev_err(&data->client->dev, "Fail to start touch\n");
-	else
-		enable_irq(data->irq);
-
+	else {
+		if (!is_doubletap2wake_enabled()) {
+			enable_irq(data->irq);
+			disabled_irq = false;
+		}
+	}
 	return error;
 }
 
@@ -1664,8 +1674,12 @@ static void mxt_stop(struct mxt_data *data)
 		dev_err(&data->client->dev, "Touch is already stopped\n");
 		return;
 	}
-	disable_irq(data->irq);
-	mxt_power_off(data);
+
+	if(!is_doubletap2wake_enabled()){
+		disable_irq(data->irq);
+		mxt_power_off(data);
+		disabled_irq = true;
+	} 
 
 	/* release the finger which is remained */
 	for (id = 0; id < MXT_MAX_FINGER; id++) {
@@ -2042,6 +2056,7 @@ static int __devexit mxt_remove(struct i2c_client *client)
 
 	sysfs_remove_group(&client->dev.kobj, &mxt_attr_group);
 	enable_irq(data->irq);
+	disabled_irq = false;
 	free_irq(data->irq, data);
 	input_unregister_device(data->input_dev);
 	i2c_unregister_device(data->client_boot);
