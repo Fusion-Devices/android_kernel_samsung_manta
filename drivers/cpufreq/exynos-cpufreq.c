@@ -247,8 +247,8 @@ static unsigned int exynos_thermal_lower_speed(void)
 	cur = exynos_getspeed(0);
 	
 	for (i = 0; freq_table[i+1].frequency != CPUFREQ_TABLE_END; i++) {
-		if (freq_table[i+1].frequency != CPUFREQ_ENTRY_INVALID &&
-				freq_table[i+1].frequency < curr && freq_table[i+1].frequency < cur) {
+		if (freq_table[i].frequency != CPUFREQ_ENTRY_INVALID &&
+				freq_table[i].frequency < curr && freq_table[i].frequency < cur) {
 			max = freq_table[i+1].frequency;
 			break;
 		}

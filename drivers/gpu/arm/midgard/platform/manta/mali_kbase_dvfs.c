@@ -737,13 +737,49 @@ int kbase_platform_dvfs_sprint_avs_table(char *buf)
 	if (buf == NULL)
 		return 0;
 
-	for (i = MALI_DVFS_STEP - 1; i >= 0; i--)
-		cnt += sprintf(buf + cnt, "%dMhz:%d\n", mali_dvfs_infotbl[i].clock, mali_dvfs_infotbl[i].voltage);
+	for (i = 0; i < MALI_DVFS_STEP; i++)
+		cnt += sprintf(buf + cnt, "%dMhz:%d\n", mali_dvfs_infotbl[i].clock, (mali_dvfs_infotbl[i].voltage/1000));
 
 	return cnt;
 #else
 	return 0;
 #endif
+}
+
+ssize_t kbase_platform_dvfs_set_avs_table(char *buf)
+{
+	ssize_t cnt = 0;
+
+	int volt = 0;
+	int freq = 0;
+
+	int i = 0;
+
+	char line[25];
+
+	if (buf == NULL)
+		return 0;
+
+	for (i = 0; i < MALI_DVFS_STEP; i++) {
+		sscanf(buf, "%dMhz:%d", &freq, &volt);
+
+		volt = volt * 1000;
+
+		if (volt  > MAX_VDD_G3D)
+			volt = MAX_VDD_G3D;
+		else if (volt < MIN_VDD_G3D)
+			volt = MIN_VDD_G3D;
+
+		printk(KERN_DEBUG "[GPU/OC]:setting %d for %d\n", volt, freq);
+
+		mali_dvfs_infotbl[i].voltage = volt;
+
+		sscanf(buf,"%s",line);
+		buf += strlen(line) + 1;
+	}
+
+	return cnt;
+
 }
 
 int kbase_platform_dvfs_set(int enable)

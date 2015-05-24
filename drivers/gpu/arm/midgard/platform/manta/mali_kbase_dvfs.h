@@ -43,6 +43,7 @@ int kbase_platform_get_voltage(struct device *dev, int *vol);
 int kbase_platform_set_voltage(struct device *dev, int vol);
 void kbase_platform_dvfs_set_clock(struct kbase_device *kbdev, int freq);
 int kbase_platform_dvfs_sprint_avs_table(char *buf);
+kbase_platform_dvfs_set_avs_table(char *buf);
 int kbase_platform_dvfs_set(int enable);
 void kbase_platform_dvfs_set_level(struct kbase_device *kbdev, int level);
 int kbase_platform_dvfs_get_level(int freq);
