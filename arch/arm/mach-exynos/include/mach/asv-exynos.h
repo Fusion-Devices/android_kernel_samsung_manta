@@ -20,6 +20,11 @@ enum asv_type_id {
 	ID_END,
 };
 
+#define MAX_VDD_ARM		1500000 /* uV */
+#define MIN_VDD_ARM		 700000 /* uV */
+#define MAX_VDD_G3D		1450000 /* uV */
+#define MIN_VDD_G3D		 700000 /* uV */
+
 struct asv_common {
 	bool		init_done;
 	unsigned int	(*get_voltage)(enum asv_type_id, unsigned int freq);
