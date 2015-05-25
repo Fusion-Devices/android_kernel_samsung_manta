@@ -101,6 +101,8 @@ static mali_dvfs_info mali_dvfs_infotbl[] = {
 #define MALI_DVFS_STEP	ARRAY_SIZE(mali_dvfs_infotbl)
 unsigned int cur_gpu_freq = 0;
 
+unsigned int gpu_boost_level = 3;
+
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 typedef struct _mali_dvfs_status_type {
 	struct kbase_device *kbdev;
@@ -127,7 +129,7 @@ static void update_time_in_state(int level);
 /*dvfs status*/
 static mali_dvfs_status mali_dvfs_status_current;
 #ifdef MALI_DVFS_ASV_ENABLE
-static const unsigned int mali_dvfs_vol_default[] = { 925000, 925000, 1025000, 1075000, 1125000, 1150000, 1200000 , 1275000, 1312500, 1350000};
+static const unsigned int mali_dvfs_vol_default[] = { 925000, 925000, 1025000, 1075000, 1125000, 1150000, 1200000, 1200000, 1250000, 1300000};
 
 static int mali_dvfs_update_asv(int cmd)
 {
@@ -196,8 +198,8 @@ static void mali_dvfs_event_proc(struct work_struct *w)
 #endif
 	spin_unlock_irqrestore(&mali_dvfs_spinlock, flags);
 
-	if ((ktime_to_us(ktime_get()) < get_input_time() + DEFAULT_BOOSTED_TIME_DURATION) && dvfs_status->step < 3)
-		dvfs_status->step = 3;
+	if ((ktime_to_us(ktime_get()) < get_input_time() + DEFAULT_BOOSTED_TIME_DURATION) && dvfs_status->step < gpu_boost_level)
+		dvfs_status->step = gpu_boost_level;
 
 	kbase_platform_dvfs_set_level(dvfs_status->kbdev, dvfs_status->step);
 
@@ -729,6 +731,18 @@ void kbase_platform_dvfs_set_level(struct kbase_device *kbdev, int level)
 	mutex_unlock(&mali_set_clock_lock);
 #endif
 }
+
+int kbase_platform_dvfs_get_gpu_boost_freq() {
+	return mali_dvfs_infotbl[gpu_boost_level].clock;
+}
+
+void kbase_platform_dvfs_set_gpu_boost_freq(unsigned int freq) {
+	int level = kbase_platform_dvfs_get_level(freq);
+
+	gpu_boost_level = (level <= mali_dvfs_status_current.upper_lock) ? level : mali_dvfs_status_current.upper_lock;
+
+}
+
 
 int kbase_platform_dvfs_sprint_avs_table(char *buf)
 {

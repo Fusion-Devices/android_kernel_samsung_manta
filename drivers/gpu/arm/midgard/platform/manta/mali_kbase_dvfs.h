@@ -43,10 +43,12 @@ int kbase_platform_get_voltage(struct device *dev, int *vol);
 int kbase_platform_set_voltage(struct device *dev, int vol);
 void kbase_platform_dvfs_set_clock(struct kbase_device *kbdev, int freq);
 int kbase_platform_dvfs_sprint_avs_table(char *buf);
-kbase_platform_dvfs_set_avs_table(char *buf);
+ssize_t kbase_platform_dvfs_set_avs_table(char *buf);
 int kbase_platform_dvfs_set(int enable);
 void kbase_platform_dvfs_set_level(struct kbase_device *kbdev, int level);
 int kbase_platform_dvfs_get_level(int freq);
+int kbase_platform_dvfs_get_gpu_boost_freq();
+void kbase_platform_dvfs_set_gpu_boost_freq(unsigned int freq);
 
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 int kbase_platform_dvfs_init(struct kbase_device *dev);

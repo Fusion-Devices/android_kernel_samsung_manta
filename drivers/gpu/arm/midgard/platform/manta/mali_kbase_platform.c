@@ -14,6 +14,7 @@
  * @file mali_kbase_platform.c
  * Platform-dependent init.
  */
+
 #include <mali_kbase.h>
 #include <mali_kbase_pm.h>
 #include <mali_kbase_uku.h>
@@ -908,6 +909,39 @@ static ssize_t set_asv(struct device *dev, struct device_attribute *attr, const 
 	return kbase_platform_dvfs_set_avs_table(buf);
 }
 
+static ssize_t show_gpu_boost_freq(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct kbase_device *kbdev;
+	ssize_t ret = 0;
+	int val;
+
+	kbdev = dev_get_drvdata(dev);
+
+	if (!kbdev)
+		return -ENODEV;
+
+	ret = snprintf(buf, PAGE_SIZE - ret, "Current gpu boost freq is %d", kbase_platform_dvfs_get_gpu_boost_freq());
+
+	return ret;
+}
+
+static ssize_t set_gpu_boost_freq(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct kbase_device *kbdev;
+	kbdev = dev_get_drvdata(dev);
+
+	if (!kbdev)
+		return -ENODEV;
+
+	unsigned int freq;
+	kstrtol(buf, 10, &freq);
+
+	kbase_platform_dvfs_set_gpu_boost_freq(freq);
+
+	return count;
+}
+
+
 /** The sysfs file @c clock, fbdev.
  *
  * This is used for obtaining information about the mali t6xx operating clock & framebuffer address,
@@ -922,6 +956,7 @@ DEVICE_ATTR(dvfs_upper_lock, S_IRUGO | S_IWUSR, show_upper_lock_dvfs, set_upper_
 DEVICE_ATTR(dvfs_under_lock, S_IRUGO | S_IWUSR, show_under_lock_dvfs, set_under_lock_dvfs);
 DEVICE_ATTR(asv, S_IRUGO | S_IWUSR, show_asv, set_asv);
 DEVICE_ATTR(time_in_state, S_IRUGO | S_IWUSR, show_time_in_state, set_time_in_state);
+DEVICE_ATTR(dvfs_gpu_boost_freq, S_IRUGO | S_IWUSR, show_gpu_boost_freq, set_gpu_boost_freq);
 
 int kbase_platform_create_sysfs_file(struct device *dev)
 {
@@ -974,6 +1009,11 @@ int kbase_platform_create_sysfs_file(struct device *dev)
 		dev_err(dev, "Couldn't create sysfs file [time_in_state]\n");
 		goto out;
 	}
+
+	if (device_create_file(dev, &dev_attr_dvfs_gpu_boost_freq)) {
+		dev_err(dev, "Couldn't create sysfs file [dvfs_gpu_boost_freq]\n");
+		goto out;
+	}
 	return 0;
  out:
 	return -ENOENT;
@@ -991,6 +1031,7 @@ void kbase_platform_remove_sysfs_file(struct device *dev)
 	device_remove_file(dev, &dev_attr_dvfs_under_lock);
 	device_remove_file(dev, &dev_attr_asv);
 	device_remove_file(dev, &dev_attr_time_in_state);
+	device_remove_file(dev, &dev_attr_dvfs_gpu_boost_freq);
 }
 #endif				/* CONFIG_MALI_MIDGARD_DEBUG_SYS */
 
