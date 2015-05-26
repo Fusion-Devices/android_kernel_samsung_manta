@@ -19,7 +19,7 @@
 #define _KBASE_DVFS_H_
 
 /* Frequency that DVFS clock frequency decisions should be made */
-#define KBASE_PM_DVFS_FREQUENCY                 100
+#define KBASE_PM_DVFS_FREQUENCY                 75
 
 #define MALI_DVFS_KEEP_STAY_CNT 10
 #define MALI_DVFS_TIME_INTERVAL 5
@@ -47,8 +47,12 @@ ssize_t kbase_platform_dvfs_set_avs_table(char *buf);
 int kbase_platform_dvfs_set(int enable);
 void kbase_platform_dvfs_set_level(struct kbase_device *kbdev, int level);
 int kbase_platform_dvfs_get_level(int freq);
-int kbase_platform_dvfs_get_gpu_boost_freq();
+unsigned int kbase_platform_dvfs_get_gpu_boost_freq(void);
 void kbase_platform_dvfs_set_gpu_boost_freq(unsigned int freq);
+void kbase_platform_dvfs_set_boost_time_duration(unsigned int duration);
+unsigned int kbase_platform_dvfs_get_boost_time_duration(void);
+ssize_t kbase_platform_dvfs_set_mali_dvfs_infotbl(char *buf);
+ssize_t kbase_platform_dvfs_sprint_mali_dvfs_infotbl(char *buf);
 
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 int kbase_platform_dvfs_init(struct kbase_device *dev);

@@ -70,8 +70,6 @@ static int mali_gpu_vol = 1250000;	/* 1.25V @ 533 MHz */
 
 static struct exynos5_bus_mif_handle *mem_freq_req;
 
-#define DEFAULT_BOOSTED_TIME_DURATION 150000
-
 /***********************************************************/
 /*  This table and variable are using the check time share of GPU Clock  */
 /***********************************************************/
@@ -101,7 +99,10 @@ static mali_dvfs_info mali_dvfs_infotbl[] = {
 #define MALI_DVFS_STEP	ARRAY_SIZE(mali_dvfs_infotbl)
 unsigned int cur_gpu_freq = 0;
 
-unsigned int gpu_boost_level = 3;
+static unsigned int gpu_boost_level = 3;
+
+#define DEFAULT_BOOSTED_TIME_DURATION 150000
+static unsigned int boost_time_duration = DEFAULT_BOOSTED_TIME_DURATION;
 
 #ifdef CONFIG_MALI_MIDGARD_DVFS
 typedef struct _mali_dvfs_status_type {
@@ -198,7 +199,7 @@ static void mali_dvfs_event_proc(struct work_struct *w)
 #endif
 	spin_unlock_irqrestore(&mali_dvfs_spinlock, flags);
 
-	if ((ktime_to_us(ktime_get()) < get_input_time() + DEFAULT_BOOSTED_TIME_DURATION) && dvfs_status->step < gpu_boost_level)
+	if ((ktime_to_us(ktime_get()) < get_input_time() + boost_time_duration) && dvfs_status->step < gpu_boost_level)
 		dvfs_status->step = gpu_boost_level;
 
 	kbase_platform_dvfs_set_level(dvfs_status->kbdev, dvfs_status->step);
@@ -732,7 +733,7 @@ void kbase_platform_dvfs_set_level(struct kbase_device *kbdev, int level)
 #endif
 }
 
-int kbase_platform_dvfs_get_gpu_boost_freq() {
+unsigned int kbase_platform_dvfs_get_gpu_boost_freq() {
 	return mali_dvfs_infotbl[gpu_boost_level].clock;
 }
 
@@ -743,6 +744,13 @@ void kbase_platform_dvfs_set_gpu_boost_freq(unsigned int freq) {
 
 }
 
+unsigned int kbase_platform_dvfs_get_boost_time_duration() {
+	return boost_time_duration;
+}
+
+void kbase_platform_dvfs_set_boost_time_duration(unsigned int duration) {
+	boost_time_duration = duration;
+}
 
 int kbase_platform_dvfs_sprint_avs_table(char *buf)
 {
@@ -792,6 +800,60 @@ ssize_t kbase_platform_dvfs_set_avs_table(char *buf)
 		buf += strlen(line) + 1;
 	}
 
+	return cnt;
+
+}
+
+ssize_t kbase_platform_dvfs_sprint_mali_dvfs_infotbl(char *buf)
+{
+#ifdef MALI_DVFS_ASV_ENABLE
+	int i;
+	ssize_t cnt = 0;
+	if (buf == NULL)
+		return 0;
+
+	for (i = 0; i < MALI_DVFS_STEP; i++)
+		cnt += sprintf(buf + cnt, "%dMhz:[%d,%d]\n", mali_dvfs_infotbl[i].clock, mali_dvfs_infotbl[i].min_threshold, mali_dvfs_infotbl[i].max_threshold);
+
+	return cnt;
+#else
+	return 0;
+#endif
+}
+
+ssize_t kbase_platform_dvfs_set_mali_dvfs_infotbl(char *buf)
+{
+	ssize_t cnt = 0;
+
+	int i = 0, ret;
+
+	unsigned min = 0, max = 0, freq = 0;
+
+	char line[25];
+
+	if (buf == NULL)
+		return 0;
+
+	for (i = 0; i < MALI_DVFS_STEP; i++) {
+		ret = sscanf(buf, "%dMhz:[%d,%d]", &freq, &min, &max);
+		if (ret != 3) {
+			printk(KERN_ERR "[G3D] Mali DVFS table Error : Couldn't parse given table\n");
+			return cnt;
+		}
+
+		if (max  > 100)
+			max = 100;
+		if (min  > 100)
+			min = 99;
+
+		printk(KERN_DEBUG "[GPU/TABLE]:setting [%d,%d] for %d\n", min, max, freq);
+
+		mali_dvfs_infotbl[i].min_threshold = min;
+		mali_dvfs_infotbl[i].max_threshold = max;
+
+		sscanf(buf,"%s",line);
+		buf += strlen(line) + 1;
+	}
 	return cnt;
 
 }
