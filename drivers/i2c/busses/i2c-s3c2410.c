@@ -44,10 +44,6 @@
 #include <plat/regs-iic.h>
 #include <plat/iic.h>
 
-#include <linux/dt2w.h>
-
-extern bool is_doubletap2wake_enabled(void);
-
 /* i2c controller state */
 
 enum s3c24xx_i2c_state {
@@ -526,7 +522,7 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 	int spins = 20;
 	int ret;
 
-	if (i2c->is_suspended && !is_doubletap2wake_enabled())
+	if (i2c->is_suspended)
 		return -EIO;
 
 	ret = s3c24xx_i2c_set_master(i2c);
@@ -616,7 +612,7 @@ static int s3c24xx_i2c_xfer(struct i2c_adapter *adap,
 	int retry;
 	int ret;
 
-	if (i2c->is_suspended && !is_doubletap2wake_enabled()) {
+	if (i2c->is_suspended) {
 		dev_err(i2c->dev, "I2C is not initialzed.\n");
 		dump_i2c_register(i2c);
 		return -EIO;
