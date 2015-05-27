@@ -20,6 +20,8 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 
+#include <linux/i2c/atmel_mxt_ts.h>
+
 struct gpio_event {
 	struct gpio_event_input_devs *input_devs;
 	const struct gpio_event_platform_data *info;
@@ -113,6 +115,7 @@ static void __maybe_unused gpio_event_resume(struct gpio_event *ip)
 	gpio_event_call_all_func(ip, GPIO_EVENT_FUNC_RESUME);
 }
 
+extern void dt2w_setdev(struct input_dev *input_device);
 static int gpio_event_probe(struct platform_device *pdev)
 {
 	int err;
@@ -160,6 +163,9 @@ static int gpio_event_probe(struct platform_device *pdev)
 					event_info->name : event_info->names[i];
 		input_dev->event = gpio_input_event;
 		ip->input_devs->dev[i] = input_dev;
+		pr_alert("GPIO_EVENT_PROBE=%s", input_dev->name);
+		if (i ==0 )
+			dt2w_setdev(input_dev);
 	}
 	ip->input_devs->count = dev_count;
 	ip->info = event_info;

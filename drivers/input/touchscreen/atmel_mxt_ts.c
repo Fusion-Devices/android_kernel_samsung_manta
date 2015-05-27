@@ -23,6 +23,10 @@
 #include <linux/gpio.h>
 #include <linux/regulator/consumer.h>
 
+#include <linux/suspend.h>
+
+#include <linux/pm_runtime.h>
+
 /* Version */
 #define MXT_VER_20		20
 #define MXT_VER_21		21
@@ -232,6 +236,8 @@ static const char * const mxt_supply_names[] = {
 	"avdd",
 	"xvdd",
 };
+
+static bool disabled_irq = false;
 
 struct mxt_info {
 	u8 family_id;
@@ -574,12 +580,15 @@ static int __mxt_read_reg(struct i2c_client *client,
 	xfer[1].len = len;
 	xfer[1].buf = val;
 
-	if (i2c_transfer(client->adapter, xfer, 2) != 2) {
-		dev_err(&client->dev, "%s: i2c transfer failed\n", __func__);
-		return -EIO;
-	}
-
-	return 0;
+	int i = 0;
+	do {
+		if ((i2c_transfer(client->adapter, xfer, 2) == 2))
+			return 0;
+		usleep_range(1000, 1500);
+		i++;
+	} while (i < 10);
+	dev_err(&client->dev, "%s: i2c transfer failed\n", __func__);
+	return -EIO;
 }
 
 static int mxt_read_reg(struct i2c_client *client, u16 reg, u8 *val)
@@ -730,6 +739,73 @@ static void mxt_input_report(struct mxt_data *data)
 
 	input_sync(input_dev);
 }
+#define DT2W_TIMEOUT_US (650 * USEC_PER_MSEC)
+
+static struct input_dev *dt2w_dev;
+static DEFINE_MUTEX(dt2w_lock);
+static bool doubletap2wake = false;
+static bool suspended = false;
+
+static u64 now = 0;
+static u64 last_input = 0;
+
+static int counter = 0;
+
+bool is_doubletap2wake_enabled(void) {
+	return doubletap2wake;
+}
+
+void dt2w_setdev(struct input_dev *input_device) {
+	dt2w_dev = input_device;
+}
+
+#ifdef CONFIG_PM
+static int dt2w_pm_notifier(struct notifier_block *nb,unsigned long event,void* cmd);
+static struct notifier_block dt2w_pm_nb = {
+	.notifier_call = dt2w_pm_notifier
+};
+
+static int dt2w_pm_notifier(struct notifier_block *nb,unsigned long event,void* cmd)
+{
+	int err = NOTIFY_OK;
+	switch (event) {
+		case PM_SUSPEND_PREPARE:
+			dev_info(&dt2w_dev->dev, "entering into the suspend mode\n");
+			dev_info(&dt2w_dev->dev, "suspend variable is set to %s\n", suspended ? true : false);
+			if (!suspended)
+				suspended = true;
+			break;
+		case PM_POST_SUSPEND:
+				suspended = false;
+			break;
+		default:
+			break;
+	}
+	return err;
+}
+#endif
+
+static void dt2w_presspwr(struct work_struct *dt2w_presspwr_work)
+{
+	dev_info(&dt2w_dev->dev, "sending press power to the input device\n");
+	input_event(dt2w_dev, EV_KEY, KEY_POWER, 1);
+	input_event(dt2w_dev, EV_SYN, 0, 0);
+	msleep(80);
+	input_event(dt2w_dev, EV_KEY, KEY_POWER, 0);
+	input_event(dt2w_dev, EV_SYN, 0, 0);
+	msleep(250);
+	mutex_unlock(&dt2w_lock);
+}
+
+static DECLARE_WORK(dt2w_presspwr_work, dt2w_presspwr);
+
+void dt2w_pwrtrigger(void)
+{
+	if (mutex_trylock(&dt2w_lock))
+	{
+		schedule_work(&dt2w_presspwr_work);
+	}
+}
 
 static void mxt_input_touchevent(struct mxt_data *data,
 				      struct mxt_message *message, int id)
@@ -787,6 +863,18 @@ static void mxt_input_touchevent(struct mxt_data *data,
 	finger[id].pressure = pressure;
 	finger[id].vector = vector;
 
+	if (doubletap2wake && suspended && (status & MXT_PRESS)) {
+		dev_info(dev, "user interacted with suspended screen\n");
+		now = ktime_to_us(ktime_get());
+		if (last_input + DT2W_TIMEOUT_US < now)
+			counter = 0;
+		counter++;
+		if (counter > 1) {
+				dt2w_pwrtrigger();
+				counter = 0;
+		}
+		last_input = now;
+	}
 	mxt_input_report(data);
 }
 
@@ -807,8 +895,9 @@ static irqreturn_t mxt_interrupt(int irq, void *dev_id)
 
 		reportid = message.reportid;
 
-		if (reportid > data->max_reportid)
+		if (reportid > data->max_reportid) {
 			goto end;
+		}
 
 		object_type = data->reportid_table[reportid].type;
 
@@ -817,6 +906,7 @@ static irqreturn_t mxt_interrupt(int irq, void *dev_id)
 			mxt_input_touchevent(data, &message, id);
 		} else {
 			mxt_dump_message(dev, &message, object_type);
+			dev_err(dev, "Dumping mess\n");
 		}
 	} while (reportid != 0xff);
 
@@ -1506,23 +1596,33 @@ err:
 static int mxt_power_off(struct mxt_data *data)
 {
 	const struct mxt_platform_data *pdata = data->pdata;
+	struct device *dev = &data->client->dev;
 	int ret;
 
-	if (!data->enabled)
-		return 0;
+	if (is_doubletap2wake_enabled()) {
+		/* Enable regulators according to order */
+		int i;
+		for (i = 0; i < ARRAY_SIZE(data->supplies); i++) {
+			ret = regulator_enable(data->supplies[i].consumer);
+			if (ret) {
+				dev_err(dev, "Fail to enable regulator %s\n",
+					data->supplies[i].supply);
+				goto err;
+			}
+		}
+	} else {
+		/* Assert reset pin */
+		if (pdata->gpio_reset)
+			gpio_set_value(pdata->gpio_reset, 0);
 
-	/* Assert reset pin */
-	if (pdata->gpio_reset)
-		gpio_set_value(pdata->gpio_reset, 0);
+		/* Disable regulator */
+		ret = regulator_bulk_disable(ARRAY_SIZE(data->supplies),
+				 data->supplies);
 
-	/* Disable regulator */
-	ret = regulator_bulk_disable(ARRAY_SIZE(data->supplies),
-			 data->supplies);
-
-	if (ret)
-		goto err;
-
-	data->enabled = false;
+		if (ret)
+			goto err;
+			data->enabled = false;
+	}
 
 	return 0;
 
@@ -1606,6 +1706,9 @@ static ssize_t mxt_update_fw_store(struct device *dev,
 			goto err_initialize;
 		}
 	}
+
+	enable_irq(data->irq);
+
 	error = mxt_make_highchg(data);
 
 err_initialize:
@@ -1638,20 +1741,76 @@ static const struct attribute_group mxt_attr_group = {
 	.attrs = mxt_attrs,
 };
 
+
+static ssize_t doubletap2wake_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", doubletap2wake);
+}
+
+static ssize_t doubletap2wake_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t size)
+{
+	int ret;
+	unsigned int value;
+
+	ret = sscanf(buf, "%d\n", &value);
+
+	if (ret != 1)
+		return -EINVAL;
+	else
+		doubletap2wake = value ? true : false;
+
+	return size;
+}
+
+static ssize_t suspended_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", suspended);
+}
+
+static ssize_t suspended_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t size)
+{
+	int ret;
+	unsigned int value;
+
+	ret = sscanf(buf, "%d\n", &value);
+
+	if (ret != 1)
+		return -EINVAL;
+	else
+		suspended = value ? true : false;
+
+	return size;
+}
+
+static DEVICE_ATTR(doubletap2wake, 0664,doubletap2wake_show, doubletap2wake_store);
+static DEVICE_ATTR(suspended, 0664, suspended_show, suspended_store);
+
+static struct kobject *dt2w_kobj;
+
+static struct attribute *dt2w_attrs[] = {
+	&dev_attr_doubletap2wake.attr,
+	&dev_attr_suspended.attr,
+	NULL
+};
+
+static const struct attribute_group dt2w_attr_group = {
+	.attrs = dt2w_attrs,
+};
+
 static int mxt_start(struct mxt_data *data)
 {
 	int error = 0;
 
-	if (data->enabled) {
-		dev_err(&data->client->dev, "Touch is already started\n");
-		return error;
-	}
 
 	error = mxt_power_on(data);
 	if (error)
 		dev_err(&data->client->dev, "Fail to start touch\n");
-	else
-		enable_irq(data->irq);
 
 	return error;
 }
@@ -1660,12 +1819,10 @@ static void mxt_stop(struct mxt_data *data)
 {
 	int id, count = 0;
 
-	if (!data->enabled) {
-		dev_err(&data->client->dev, "Touch is already stopped\n");
-		return;
+	if (is_doubletap2wake_enabled()) {
+		dev_err(&data->client->dev, "[ATMEL] don't suspend the screen as DT2W is enabled\n");
+		//return;
 	}
-	disable_irq(data->irq);
-	mxt_power_off(data);
 
 	/* release the finger which is remained */
 	for (id = 0; id < MXT_MAX_FINGER; id++) {
@@ -1675,8 +1832,7 @@ static void mxt_stop(struct mxt_data *data)
 		count++;
 	}
 
-	if (count)
-		mxt_input_report(data);
+	mxt_input_report(data);
 }
 
 static int mxt_input_open(struct input_dev *dev)
@@ -1723,11 +1879,13 @@ static int mxt_ts_finish_init(struct mxt_data *data)
 	int error;
 
 	error = request_threaded_irq(client->irq, NULL, mxt_interrupt,
-			data->pdata->irqflags, client->dev.driver->name, data);
+			data->pdata->irqflags | IRQF_ONESHOT, client->name, data);
 	if (error) {
 		dev_err(&client->dev, "Failed to register interrupt\n");
 		goto err_req_irq;
 	}
+
+	device_init_wakeup(&client->dev, 1);
 
 	error = mxt_make_highchg(data);
 	if (error) {
@@ -1916,6 +2074,12 @@ static int __devinit mxt_probe(struct i2c_client *client,
 	if (!pdata)
 		return -EINVAL;
 
+	/* Enable runtime PM ops, start in ACTIVE mode */
+	error = pm_runtime_set_active(&client->dev);
+	if (error < 0)
+		dev_err(&client->dev, "Unable to set runtime pm state\n");
+	pm_runtime_enable(&client->dev);
+
 	data = kzalloc(sizeof(struct mxt_data), GFP_KERNEL);
 	if (!data) {
 		dev_err(&client->dev, "Failed to allocate memory\n");
@@ -1999,6 +2163,14 @@ static int __devinit mxt_probe(struct i2c_client *client,
 	if (error)
 		goto err_register_input_device;
 
+
+	register_pm_notifier(&dt2w_pm_nb);
+
+	dt2w_kobj = kobject_create_and_add("android_touch", NULL);
+
+	if (sysfs_create_group(dt2w_kobj, &dt2w_attr_group))
+		dev_info(&dt2w_dev->dev,"[DT2W]:Unable to register the input device sysfs group\n");
+
 	error = sysfs_create_group(&client->dev.kobj, &mxt_attr_group);
 	if (error)
 		goto err_create_attr_group;
@@ -2041,7 +2213,8 @@ static int __devexit mxt_remove(struct i2c_client *client)
 	struct mxt_data *data = i2c_get_clientdata(client);
 
 	sysfs_remove_group(&client->dev.kobj, &mxt_attr_group);
-	enable_irq(data->irq);
+	
+	disabled_irq = true;
 	free_irq(data->irq, data);
 	input_unregister_device(data->input_dev);
 	i2c_unregister_device(data->client_boot);
@@ -2070,6 +2243,11 @@ static int mxt_suspend(struct device *dev)
 
 	mutex_unlock(&input_dev->mutex);
 
+	if (is_doubletap2wake_enabled)
+		pm_stay_awake(dev);
+	else
+		disable_irq(data->irq);
+
 	return 0;
 }
 
@@ -2085,6 +2263,9 @@ static int mxt_resume(struct device *dev)
 		mxt_start(data);
 
 	mutex_unlock(&input_dev->mutex);
+
+	if (!is_doubletap2wake_enabled)
+		enable_irq(data->irq);
 
 	return 0;
 }

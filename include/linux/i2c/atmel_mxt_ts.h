@@ -14,6 +14,7 @@
 #define __LINUX_ATMEL_MXT_TS_H
 
 #include <linux/types.h>
+#include <linux/input.h>
 
 /* Orient */
 #define MXT_NORMAL		0x0
@@ -44,5 +45,9 @@ struct mxt_platform_data {
 	unsigned int gpio_reset;
 	unsigned int reset_msec;
 };
+
+extern bool is_doubletap2wake_enabled(void);
+
+extern void dt2w_setdev(struct input_dev *input_device);
 
 #endif /* __LINUX_ATMEL_MXT_TS_H */
