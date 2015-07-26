@@ -23,6 +23,8 @@
 #include <plat/gpio-core.h>
 #include <plat/gpio-cfg.h>
 
+#include <plat/pm.h>
+
 #include <asm/mach/irq.h>
 
 #define GPIO_BASE(chip)		(((unsigned long)(chip)->base) & 0xFFFFF000u)
@@ -170,7 +172,7 @@ static __init int s5p_gpioint_add(struct samsung_gpio_chip *chip)
 	ct->chip.irq_unmask = irq_gc_mask_clr_bit;
 	ct->chip.irq_set_type = s5p_gpioint_set_type;
 	ct->chip.name		= "manta-pio";
-	ct->chip.flags		= IRQCHIP_SKIP_SET_WAKE;
+	ct->chip.flags		= IRQCHIP_MASK_ON_SUSPEND | IRQCHIP_SKIP_SET_WAKE;
 	ct->regs.ack = PEND_OFFSET + REG_OFFSET(group - bank->start);
 	ct->regs.mask = MASK_OFFSET + REG_OFFSET(group - bank->start);
 	ct->regs.type = CON_OFFSET + REG_OFFSET(group - bank->start);

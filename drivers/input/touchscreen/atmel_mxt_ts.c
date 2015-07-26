@@ -1600,16 +1600,7 @@ static int mxt_power_off(struct mxt_data *data)
 	int ret;
 
 	if (is_doubletap2wake_enabled()) {
-		/* Enable regulators according to order */
-		int i;
-		for (i = 0; i < ARRAY_SIZE(data->supplies); i++) {
-			ret = regulator_enable(data->supplies[i].consumer);
-			if (ret) {
-				dev_err(dev, "Fail to enable regulator %s\n",
-					data->supplies[i].supply);
-				goto err;
-			}
-		}
+		goto err;
 	} else {
 		/* Assert reset pin */
 		if (pdata->gpio_reset)
@@ -1884,8 +1875,6 @@ static int mxt_ts_finish_init(struct mxt_data *data)
 		dev_err(&client->dev, "Failed to register interrupt\n");
 		goto err_req_irq;
 	}
-
-	device_init_wakeup(&client->dev, 1);
 
 	error = mxt_make_highchg(data);
 	if (error) {
@@ -2166,6 +2155,8 @@ static int __devinit mxt_probe(struct i2c_client *client,
 
 	register_pm_notifier(&dt2w_pm_nb);
 
+	device_init_wakeup(&client->dev, 1);
+
 	dt2w_kobj = kobject_create_and_add("android_touch", NULL);
 
 	if (sysfs_create_group(dt2w_kobj, &dt2w_attr_group))
@@ -2236,6 +2227,7 @@ static int mxt_suspend(struct device *dev)
 	struct mxt_data *data = i2c_get_clientdata(client);
 	struct input_dev *input_dev = data->input_dev;
 
+
 	mutex_lock(&input_dev->mutex);
 
 	if (input_dev->users)
@@ -2243,12 +2235,7 @@ static int mxt_suspend(struct device *dev)
 
 	mutex_unlock(&input_dev->mutex);
 
-	if (is_doubletap2wake_enabled)
-		pm_stay_awake(dev);
-	else
-		disable_irq(data->irq);
-
-	return 0;
+	return is_doubletap2wake_enabled() ? 1 : 0;
 }
 
 static int mxt_resume(struct device *dev)
@@ -2263,9 +2250,6 @@ static int mxt_resume(struct device *dev)
 		mxt_start(data);
 
 	mutex_unlock(&input_dev->mutex);
-
-	if (!is_doubletap2wake_enabled)
-		enable_irq(data->irq);
 
 	return 0;
 }
